@@ -9,6 +9,7 @@ build:
     - einops
     - numpy
     - transformers
+    - bitsandbytes
     - sentencepiece
     - tqdm
     - tensorboard
