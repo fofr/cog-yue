@@ -49,7 +49,7 @@ class Predictor(BasePredictor):
             default="inspiring female uplifting pop airy vocal electronic bright vocal vocal",
         ),
         lyrics: str = Input(
-            description="Lyrics for music generation. Must be structured in segments with [verse], [chorus], etc tags",
+            description="Lyrics for music generation. Must be structured in segments with [verse], [chorus], [bridge], or [outro] tags",
             default="[verse]\nOh yeah, oh yeah, oh yeah\n\n[chorus]\nOh yeah, oh yeah, oh yeah",
         ),
         num_segments: int = Input(
@@ -73,8 +73,13 @@ class Predictor(BasePredictor):
         if not lyrics.strip():
             raise ValueError("Lyrics cannot be empty")
 
-        if not any(tag in lyrics.lower() for tag in ["[verse]", "[chorus]"]):
-            raise ValueError("Lyrics must contain at least one [verse] or [chorus] tag")
+        if not any(
+            tag in lyrics.lower()
+            for tag in ["[verse]", "[chorus]", "[bridge]", "[outro]"]
+        ):
+            raise ValueError(
+                "Lyrics must contain at least one [verse], [chorus], [bridge], or [outro] tag"
+            )
 
         if not genre_description.strip():
             raise ValueError("Genre description cannot be empty")
@@ -140,13 +145,19 @@ class Predictor(BasePredictor):
             # Change back to root directory
             os.chdir("..")
 
-            # Find output files in vocoder/mix directory
+            # Find output files in vocoder/mix directory and rename to output_N.mp3
             mix_dir = os.path.join(output_dir, "vocoder", "mix")
             output_files = []
             if os.path.exists(mix_dir):
-                for file in os.listdir(mix_dir):
-                    if file.endswith(".mp3"):
-                        output_files.append(Path(os.path.join(mix_dir, file)))
+                mp3_files = [f for f in os.listdir(mix_dir) if f.endswith(".mp3")]
+                for idx, file in enumerate(mp3_files):
+                    old_path = os.path.join(mix_dir, file)
+                    new_name = (
+                        "output.mp3" if len(mp3_files) == 1 else f"output_{idx+1}.mp3"
+                    )
+                    new_path = os.path.join(mix_dir, new_name)
+                    os.rename(old_path, new_path)
+                    output_files.append(Path(new_path))
 
             return output_files
 
