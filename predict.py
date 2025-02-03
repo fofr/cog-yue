@@ -40,6 +40,7 @@ class Predictor(BasePredictor):
             "models--m-a-p--YuE-s1-7B-anneal-en-cot",
             "models--Alissonerdx--YuE-s2-1B-general-int8",
             "models--Alissonerdx--YuE-s1-7B-anneal-en-cot-nf4",
+            "models--Alissonerdx--YuE-s1-7B-anneal-en-cot-int8",
             "xcodec_mini_infer",
         ]
 
