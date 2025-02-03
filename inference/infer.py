@@ -96,6 +96,7 @@ model = AutoModelForCausalLM.from_pretrained(
     stage1_model,
     torch_dtype=torch.bfloat16,
     attn_implementation="flash_attention_2", # To enable flashattn, you have to install flash-attn
+    cache_dir="./models",
     # device_map="auto",
     )
 # to device, if gpu is available
@@ -298,6 +299,7 @@ model_stage2 = AutoModelForCausalLM.from_pretrained(
     stage2_model,
     torch_dtype=torch.bfloat16,
     attn_implementation="flash_attention_2",
+    cache_dir="./models",
     # device_map="auto",
     )
 model_stage2.to(device)

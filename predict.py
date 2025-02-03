@@ -3,20 +3,44 @@ import os
 import tempfile
 import subprocess
 import shutil
+import time
 from typing import List
 from cog import BasePredictor, Input, Path
-from huggingface_hub import snapshot_download
+
+WEIGHTS_BASE_URL = "https://weights.replicate.delivery/default/yue/"
+
 
 class Predictor(BasePredictor):
+    def download_weights(self, filename: str, dest_dir: str):
+        os.makedirs(dest_dir, exist_ok=True)
+
+        if not os.path.exists(f"{dest_dir}/{filename}"):
+            print(f"⏳ Downloading {filename} to {dest_dir}")
+            start = time.time()
+            subprocess.check_call(
+                [
+                    "pget",
+                    "--log-level",
+                    "warn",
+                    "-xf",
+                    f"{WEIGHTS_BASE_URL}/{filename}.tar",
+                    dest_dir,
+                ],
+                close_fds=False,
+            )
+            print(f"✅ Download completed in {time.time() - start:.2f} seconds")
+        else:
+            print(f"✅ {filename} already exists in {dest_dir}")
+
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
         cog_version = importlib.metadata.version("cog")
         print(f"Cog version: {cog_version}\n")
 
-        # Download xcodec_mini_infer
-        folder_path = "./inference/xcodec_mini_infer"
-        os.makedirs(folder_path, exist_ok=True)
-        snapshot_download(repo_id="m-a-p/xcodec_mini_infer", local_dir=folder_path)
+        self.download_weights(
+            "models--m-a-p--YuE-s1-7B-anneal-en-cot", "/src/inference/models"
+        )
+        self.download_weights("xcodec_mini_infer", "/src/inference")
 
     def predict(
         self,
@@ -26,7 +50,7 @@ class Predictor(BasePredictor):
         ),
         lyrics: str = Input(
             description="Lyrics for music generation. Must be structured in segments with [verse], [chorus], etc tags",
-            default="",
+            default="[verse]\nOh yeah, oh yeah, oh yeah\n\n[chorus]\nOh yeah, oh yeah, oh yeah",
         ),
         num_segments: int = Input(
             description="Number of segments to generate", default=2, ge=1, le=10
@@ -37,8 +61,23 @@ class Predictor(BasePredictor):
             ge=500,
             le=3000,
         ),
+        seed: int = Input(
+            description="Set a seed for reproducibility. Random by default.",
+            default=None,
+        ),
     ) -> List[Path]:
         """Run YuE inference on the provided inputs"""
+        seed = self.seed_or_random_seed(seed)
+
+        # Validate inputs
+        if not lyrics.strip():
+            raise ValueError("Lyrics cannot be empty")
+
+        if not any(tag in lyrics.lower() for tag in ["[verse]", "[chorus]"]):
+            raise ValueError("Lyrics must contain at least one [verse] or [chorus] tag")
+
+        if not genre_description.strip():
+            raise ValueError("Genre description cannot be empty")
 
         # Create temporary files for genre and lyrics
         def create_temp_file(content: str, prefix: str) -> str:
@@ -55,7 +94,7 @@ class Predictor(BasePredictor):
         lyrics_file = create_temp_file(lyrics, "lyrics_")
 
         # Setup output directory
-        output_dir = "./output"
+        output_dir = "/src/output"
         os.makedirs(output_dir, exist_ok=True)
 
         # Empty output directory
@@ -92,6 +131,8 @@ class Predictor(BasePredictor):
                 "0",
                 "--max_new_tokens",
                 str(max_new_tokens),
+                "--seed",
+                str(seed),
             ]
 
             subprocess.run(command, check=True)
@@ -99,12 +140,13 @@ class Predictor(BasePredictor):
             # Change back to root directory
             os.chdir("..")
 
-            # Find output files
+            # Find output files in vocoder/mix directory
+            mix_dir = os.path.join(output_dir, "vocoder", "mix")
             output_files = []
-            for root, dirs, files in os.walk(output_dir):
-                for file in files:
+            if os.path.exists(mix_dir):
+                for file in os.listdir(mix_dir):
                     if file.endswith(".mp3"):
-                        output_files.append(Path(os.path.join(root, file)))
+                        output_files.append(Path(os.path.join(mix_dir, file)))
 
             return output_files
 

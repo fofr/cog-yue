@@ -1,5 +1,6 @@
 .cog/
-
+inference/models
+inference/xcodec_mini_infer
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
