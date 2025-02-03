@@ -36,11 +36,18 @@ class Predictor(BasePredictor):
         """Load the model into memory to make running multiple predictions efficient"""
         cog_version = importlib.metadata.version("cog")
         print(f"Cog version: {cog_version}\n")
+        models = [
+            "models--m-a-p--YuE-s1-7B-anneal-en-cot",
+            "models--Alissonerdx--YuE-s2-1B-general-int8",
+            "models--Alissonerdx--YuE-s1-7B-anneal-en-cot-nf4",
+            "xcodec_mini_infer",
+        ]
 
-        self.download_weights(
-            "models--m-a-p--YuE-s1-7B-anneal-en-cot", "/src/inference/models"
-        )
-        self.download_weights("xcodec_mini_infer", "/src/inference")
+        for model in models:
+            dest_dir = (
+                "/src/inference/models" if "models--" in model else "/src/inference"
+            )
+            self.download_weights(model, dest_dir)
 
     def predict(
         self,
@@ -64,6 +71,16 @@ class Predictor(BasePredictor):
         seed: int = Input(
             description="Set a seed for reproducibility. Random by default.",
             default=None,
+        ),
+        quantization_stage1: str = Input(
+            description="Quantization stage 1",
+            default="bf16",
+            choices=["bf16", "int8", "nf4"],
+        ),
+        quantization_stage2: str = Input(
+            description="Quantization stage 2",
+            default="bf16",
+            choices=["bf16", "int8"],
         ),
     ) -> List[Path]:
         """Run YuE inference on the provided inputs"""
@@ -114,14 +131,28 @@ class Predictor(BasePredictor):
             # Change to inference directory
             os.chdir("./inference")
 
+            # Quantisation to model mapping
+            stage_1_model = {
+                "bf16": "m-a-p/YuE-s1-7B-anneal-en-cot",
+                "int8": "Alissonerdx/YuE-s1-7B-anneal-en-cot-int8",
+                "nf4": "Alissonerdx/YuE-s1-7B-anneal-en-cot-nf4",
+            }
+            stage_2_model = {
+                "bf16": "m-a-p/YuE-s2-1B-general",
+                "int8": "Alissonerdx/YuE-s2-1B-general-int8",
+            }
+
+            print(f"Stage 1 model: {stage_1_model[quantization_stage1]}")
+            print(f"Stage 2 model: {stage_2_model[quantization_stage2]}")
+
             # Run inference
             command = [
                 "python",
                 "infer.py",
                 "--stage1_model",
-                "m-a-p/YuE-s1-7B-anneal-en-cot",
+                stage_1_model[quantization_stage1],
                 "--stage2_model",
-                "m-a-p/YuE-s2-1B-general",
+                stage_2_model[quantization_stage2],
                 "--genre_txt",
                 genre_file,
                 "--lyrics_txt",
@@ -138,6 +169,10 @@ class Predictor(BasePredictor):
                 str(max_new_tokens),
                 "--seed",
                 str(seed),
+                "--quantization_stage1",
+                quantization_stage1,
+                "--quantization_stage2",
+                quantization_stage2,
             ]
 
             subprocess.run(command, check=True)

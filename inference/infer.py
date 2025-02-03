@@ -24,8 +24,10 @@ from vocoder import build_codec_model, process_audio
 from post_process_audio import replace_low_freq_with_energy_matched
 
 def load_optimized_model(model_path, quantization, attention):
+    print(f"Loading optimized model from {model_path} with quantization {quantization} and attention {attention}")
     bnb_config = None
     torch_dtype = torch.bfloat16
+    device = torch.device(f"cuda:{args.cuda_idx}" if torch.cuda.is_available() else "cpu")
 
     if quantization == "int4" or quantization == "nf4":
         bnb_config = BitsAndBytesConfig(
@@ -34,14 +36,22 @@ def load_optimized_model(model_path, quantization, attention):
             bnb_4bit_quant_type=quantization
         )
     elif quantization == "int8":
-        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        bnb_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+            device_map={"": device}  # Specify device mapping for int8
+        )
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         quantization_config=bnb_config,
         torch_dtype=torch_dtype,
-        attn_implementation=attention
+        attn_implementation=attention,
+        cache_dir="./models",
+        device_map={"": device} if quantization == "int8" else None  # Only set device_map for int8
     )
+
+    if quantization != "int8":
+        model.to(device)
 
     return model
 
@@ -123,7 +133,6 @@ mmtokenizer = _MMSentencePieceTokenizer("./mm_tokenizer_v0.2_hf/tokenizer.model"
 
 print(f"Loading Stage 1 model from {stage1_model}...")
 model = load_optimized_model(stage1_model, args.quantization_stage1, "flash_attention_2")
-model.to(device)
 model.eval()
 
 if torch.__version__ >= "2.0.0":
@@ -319,7 +328,6 @@ if not args.disable_offload_model:
 print("\nStarting Stage 2 inference...")
 print(f"Loading Stage 2 model from {stage2_model}...")
 model_stage2 = load_optimized_model(stage2_model, args.quantization_stage2, "flash_attention_2")
-model_stage2.to(device)
 model_stage2.eval()
 
 if torch.__version__ >= "2.0.0":
