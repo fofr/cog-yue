@@ -15,13 +15,35 @@ import torchaudio
 from torchaudio.transforms import Resample
 import soundfile as sf
 from einops import rearrange
-from transformers import AutoTokenizer, AutoModelForCausalLM, LogitsProcessor, LogitsProcessorList
+from transformers import AutoTokenizer, AutoModelForCausalLM, LogitsProcessor, LogitsProcessorList, BitsAndBytesConfig
 from omegaconf import OmegaConf
 from codecmanipulator import CodecManipulator
 from mmtokenizer import _MMSentencePieceTokenizer
 from models.soundstream_hubert_new import SoundStream
 from vocoder import build_codec_model, process_audio
 from post_process_audio import replace_low_freq_with_energy_matched
+
+def load_optimized_model(model_path, quantization, attention):
+    bnb_config = None
+    torch_dtype = torch.bfloat16
+
+    if quantization == "int4" or quantization == "nf4":
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type=quantization
+        )
+    elif quantization == "int8":
+        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        quantization_config=bnb_config,
+        torch_dtype=torch_dtype,
+        attn_implementation=attention
+    )
+
+    return model
 
 print("Starting music generation pipeline...")
 
@@ -55,6 +77,14 @@ parser.add_argument('--config_path', type=str, default='./xcodec_mini_infer/deco
 parser.add_argument('--vocal_decoder_path', type=str, default='./xcodec_mini_infer/decoders/decoder_131000.pth', help='Path to Vocos decoder weights.')
 parser.add_argument('--inst_decoder_path', type=str, default='./xcodec_mini_infer/decoders/decoder_151000.pth', help='Path to Vocos decoder weights.')
 parser.add_argument('-r', '--rescale', action='store_true', help='Rescale output to avoid clipping.')
+
+# Quantization
+parser.add_argument("--quantization_stage1", type=str, default="bf16",
+                    choices=["bf16", "int8", "int4", "nf4"],
+                    help="The quantization mode of the model stage 1.")
+parser.add_argument("--quantization_stage2", type=str, default="bf16",
+                    choices=["bf16", "int8", "int4", "nf4"],
+                    help="The quantization mode of the model stage 2.")
 
 
 args = parser.parse_args()
@@ -92,14 +122,7 @@ print("Loading tokenizer...")
 mmtokenizer = _MMSentencePieceTokenizer("./mm_tokenizer_v0.2_hf/tokenizer.model")
 
 print(f"Loading Stage 1 model from {stage1_model}...")
-model = AutoModelForCausalLM.from_pretrained(
-    stage1_model,
-    torch_dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2", # To enable flashattn, you have to install flash-attn
-    cache_dir="./models",
-    # device_map="auto",
-    )
-# to device, if gpu is available
+model = load_optimized_model(stage1_model, args.quantization_stage1, "flash_attention_2")
 model.to(device)
 model.eval()
 
@@ -295,13 +318,7 @@ if not args.disable_offload_model:
 
 print("\nStarting Stage 2 inference...")
 print(f"Loading Stage 2 model from {stage2_model}...")
-model_stage2 = AutoModelForCausalLM.from_pretrained(
-    stage2_model,
-    torch_dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
-    cache_dir="./models",
-    # device_map="auto",
-    )
+model_stage2 = load_optimized_model(stage2_model, args.quantization_stage2, "flash_attention_2")
 model_stage2.to(device)
 model_stage2.eval()
 
